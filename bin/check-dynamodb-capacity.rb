@@ -31,12 +31,13 @@
 #   for details.
 #
 
-require 'rubygems' if RUBY_VERSION < '1.9.0'
 require 'sensu-plugin/check/cli'
 require 'aws-sdk'
 require 'time'
+require '../lib/helpers'
 
 class CheckDynamoDB < Sensu::Plugin::Check::CLI
+
   option :access_key_id,
          short:       '-k N',
          long:        '--access-key-id ID',
@@ -95,45 +96,6 @@ class CheckDynamoDB < Sensu::Plugin::Check::CLI
            description: "Trigger a #{severity} if consumed capacity is over a percentage"
   end
 
-  def aws_config
-    hash = {}
-    hash.update access_key_id: config[:access_key_id], secret_access_key: config[:secret_access_key] if config[:access_key_id] && config[:secret_access_key]
-    hash.update region: config[:region] if config[:region]
-    hash
-  end
-
-  def dynamo_db
-    @dynamo_db ||= AWS::DynamoDB.new aws_config
-  end
-
-  def cloud_watch
-    @cloud_watch ||= AWS::CloudWatch.new aws_config
-  end
-
-  def tables
-    return @tables if @tables
-    @tables = dynamo_db.tables.to_a
-    @tables.select! { |table| config[:table_names].include? table.name } if config[:table_names]
-    @tables
-  end
-
-  def cloud_watch_metric(metric_name, table_name)
-    cloud_watch.metrics.with_namespace('AWS/DynamoDB').with_metric_name(metric_name).with_dimensions(name: 'TableName', value: table_name).first
-  end
-
-  def statistics_options
-    {
-      start_time: config[:end_time] - config[:period],
-      end_time:   config[:end_time],
-      statistics: [config[:statistics].to_s.capitalize],
-      period:     config[:period]
-    }
-  end
-
-  def latest_value(metric)
-    metric.statistics(statistics_options.merge unit: 'Count').datapoints.sort_by { |datapoint| datapoint[:timestamp] }.last[config[:statistics]]
-  end
-
   def flag_alert(severity, message)
     @severities[severity] = true
     @message += message
@@ -142,12 +104,8 @@ class CheckDynamoDB < Sensu::Plugin::Check::CLI
   def check_capacity(table)
     config[:capacity_for].each do |r_or_w|
       metric_name   = "Consumed#{r_or_w.to_s.capitalize}CapacityUnits"
-      metric        = cloud_watch_metric metric_name, table.name
-      metric_value  = begin
-                        latest_value(metric)
-                      rescue
-                        0
-                      end
+      metric        = @cw.generate_metric metric_name, table.name, 'AWS/DynamoDB', 'TableName'
+      metric_value  = @cw.get_latest_value metric, config
       percentage    = metric_value / table.send("#{r_or_w}_capacity_units").to_f * 100
 
       @severities.keys.each do |severity|
@@ -161,13 +119,15 @@ class CheckDynamoDB < Sensu::Plugin::Check::CLI
   end
 
   def run
-    @message    = "#{tables.size} tables total"
+    @cw = Helpers::CloudWatch.new config[:region]
+    dynamo_db = Helpers::DynamoDB.new config[:region], config[:table_names]
+    @message    = "#{dynamo_db.tables.size} tables total"
     @severities = {
       critical: false,
       warning:  false
     }
 
-    tables.each { |table| check_capacity table }
+    dynamo_db.tables.each { |table| check_capacity table }
 
     @message += "; (#{config[:statistics].to_s.capitalize} within #{config[:period]} seconds "
     @message += "between #{config[:end_time] - config[:period]} to #{config[:end_time]})"
