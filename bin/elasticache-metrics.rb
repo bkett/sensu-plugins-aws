@@ -12,7 +12,7 @@
 #   Linux
 #
 # DEPENDENCIES:
-#   gem: aws-sdk
+#   gem: aws-sdk-v1
 #   gem: sensu-plugin
 #
 # needs example command
@@ -31,9 +31,8 @@
 #   for details.
 #
 
-require 'rubygems' if RUBY_VERSION < '1.9.0'
 require 'sensu-plugin/metric/cli'
-require 'aws-sdk'
+require 'aws-sdk-v1'
 
 class ElastiCacheMetrics < Sensu::Plugin::Metric::CLI::Graphite
   option :cacheclusterid,

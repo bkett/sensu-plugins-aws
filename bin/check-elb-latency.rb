@@ -13,7 +13,7 @@
 #   Linux
 #
 # DEPENDENCIES:
-#   gem: aws-sdk
+#   gem: aws-sdk-v1
 #   gem: sensu-plugin
 #
 # USAGE:
@@ -31,21 +31,11 @@
 #   for details.
 #
 
-require 'rubygems' if RUBY_VERSION < '1.9.0'
 require 'sensu-plugin/check/cli'
-require 'aws-sdk'
+require 'aws-sdk-v1'
+require '../lib/helpers'
 
 class CheckELBLatency < Sensu::Plugin::Check::CLI
-  option :access_key_id,
-         short:       '-k N',
-         long:        '--access-key-id ID',
-         description: 'AWS access key ID'
-
-  option :secret_access_key,
-         short:       '-s N',
-         long:        '--secret-access-key KEY',
-         description: 'AWS secret access key'
-
   option :region,
          short:       '-r R',
          long:        '--region REGION',
@@ -85,73 +75,46 @@ class CheckELBLatency < Sensu::Plugin::Check::CLI
            description: "Trigger a #{severity} if latancy is over specified seconds"
   end
 
-  def aws_config
-    hash = {}
-    hash.update access_key_id: config[:access_key_id], secret_access_key: config[:secret_access_key] if config[:access_key_id] && config[:secret_access_key]
-    hash.update region: config[:region] if config[:region]
-    hash
-  end
-
-  def elb
-    @elb ||= AWS::ELB.new aws_config
-  end
-
-  def cloud_watch
-    @cloud_watch ||= AWS::CloudWatch.new aws_config
-  end
-
-  def elbs
-    return @elbs if @elbs
-    @elbs = elb.load_balancers.to_a
-    @elbs.select! { |elb| config[:elb_names].include? elb.name } if config[:elb_names]
-    @elbs
-  end
-
-  def latency_metric(elb_name)
-    cloud_watch.metrics.with_namespace('AWS/ELB').with_metric_name('Latency').with_dimensions(name: 'LoadBalancerName', value: elb_name).first
-  end
-
-  def statistics_options
-    {
-      start_time: config[:end_time] - config[:period],
-      end_time:   config[:end_time],
-      statistics: [config[:statistics].to_s.capitalize],
-      period:     config[:period]
-    }
-  end
-
-  def latest_value(metric)
-    metric.statistics(statistics_options.merge unit: 'Seconds').datapoints.sort_by { |datapoint| datapoint[:timestamp] }.last[config[:statistics]]
-  end
-
   def flag_alert(severity, message)
     @severities[severity] = true
     @message += message
   end
 
+  def metric_hash metric_name, elb_name
+    {
+      name: metric_name,
+      aws_obj_name: elb_name,
+      dimension_name: 'LoadBalancerName' 
+    }
+  end
+  
   def check_latency(elb)
-    metric        = latency_metric elb.name
-    metric_value  = begin
-                      latest_value metric
-                    rescue
-                      0
-                    end
-
+    metric_conf = metric_hash('Latency', elb.name)
+    ew = Helpers::ELBWatch.new(config, metric_conf, 'Seconds')
+    metric_value = ew.get_latest_value
+    if metric_value < 0
+      return @message += "; load balancer #{elb.name} has no alive nodes!"
+      if @elbs.size == 1
+        @severities[:warning] = true
+      end
+    end
     @severities.keys.each do |severity|
       threshold = config[:"#{severity}_over"]
       next unless threshold
       next if metric_value < threshold
       flag_alert severity,
-                 "; #{elbs.size == 1 ? nil : "#{elb.inspect}'s"} Latency is #{sprintf '%.3f', metric_value} seconds. (expected lower than #{sprintf '%.3f', threshold})" # rubocop:disable LineLength
+                 "; #{@elbs.size == 1 ? nil : "#{elb.name}'s"} Latency is #{sprintf '%.3f', metric_value} seconds. (expected lower than #{sprintf '%.3f', threshold})" # rubocop:disable LineLength
       break
     end
   end
 
   def run
-    @message  = if elbs.size == 1
-                  elbs.first.inspect
+    @elbs = Helpers::ELB.new(config[:region], config[:elb_names]).elbs
+
+    @message  = if @elbs.size == 1
+                  @elbs.first.inspect
                 else
-                  "#{elbs.size} load balancers total"
+                  "#{@elbs.size} load balancers total"
                 end
 
     @severities = {
@@ -159,7 +122,7 @@ class CheckELBLatency < Sensu::Plugin::Check::CLI
       warning:  false
     }
 
-    elbs.each { |elb| check_latency elb }
+    @elbs.each { |elb| check_latency elb }
 
     @message += "; (#{config[:statistics].to_s.capitalize} within #{config[:period]} seconds "
     @message += "between #{config[:end_time] - config[:period]} to #{config[:end_time]})"

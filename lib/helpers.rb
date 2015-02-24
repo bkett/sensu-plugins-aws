@@ -1,4 +1,4 @@
-require 'aws-sdk'
+require 'aws-sdk-v1'
 
 module Helpers
 
@@ -17,19 +17,18 @@ module Helpers
       @region = region
     end
 
-    def sel! arr, name=nil
-      arr.select! { |obj| name.include? obj.name } if name
+    def sel! arr, sub_arr=nil
+      arr.select! { |obj| sub_arr.include? obj.name } if sub_arr
     end
 
   end
 
-
   class ELB < Config
     include Helpers
 
-    def initialize region, elb_name=nil
+    def initialize region, elb_names=nil
       super region
-      @elb_name = elb_name if elb_name
+      @elb_names = elb_names if elb_names
     end
 
     def elb
@@ -39,7 +38,7 @@ module Helpers
     def elbs
       return @elbs if @elbs
       @elbs = elb.load_balancers.to_a
-      sel! @elbs, @elb_name
+      sel! @elbs, @elb_names
       @elbs
     end
 
@@ -69,34 +68,81 @@ module Helpers
   class CloudWatch < Config
     include Helpers
     
-    def initialize region
-      super region
+    def initialize opts, metric_opts, unit
+      super opts[:region]
+      @stat_opts = opts
+      @metric_opts = metric_opts
+      @unit = unit
+    end
 
+    private
+    def statistics_options
+      {
+        start_time: @stat_opts[:end_time] - @stat_opts[:period].to_i * 10,
+        end_time:   @stat_opts[:end_time],
+        statistics: [@stat_opts[:statistics].to_s.capitalize],
+        period:     @stat_opts[:period],
+        unit:       @unit
+      }
+    end
+
+    def generate_metric aws_namespace 
+      cloud_watch.metrics.with_namespace(aws_namespace).with_metric_name(@metric_opts[:name]).with_dimensions( \
+                            name: @metric_opts[:dimension_name], value: @metric_opts[:aws_obj_name]).first
+    end
+
+    def get_latest_value 
+        opts = statistics_options
+      begin
+        @metric.statistics(opts).datapoints.sort_by { |datapoint| datapoint[:timestamp] }.last[@stat_opts[:statistics]]
+      rescue
+        -1
+      end
     end
 
     def cloud_watch
       @cloud_watch ||= AWS::CloudWatch.new(aws_config @region)
     end
 
-    def statistics_options options
-      {
-        start_time: options[:end_time] - options[:period],
-        end_time:   options[:end_time],
-        statistics: [options[:statistics].to_s.capitalize],
-        period:     options[:period]
-      }
+  end
+
+  class DynamoWatch < CloudWatch
+    
+    def initialize opts, metric_opts, unit
+      super
+      @aws_namespace = 'AWS/DynamoDB'
     end
 
-    def generate_metric name, aws_obj_name, aws_namespace, dimension_name 
-      cloud_watch.metrics.with_namespace(aws_namespace).with_metric_name(name).with_dimensions(name: dimension_name, value: aws_obj_name)
+    def get_latest_value
+      @metric = generate_metric @aws_namespace
+      super
+    end
+  end
+
+  class EC2Watch < CloudWatch
+
+    def initialize opts, metric_opts, unit
+      super
+      @aws_namespace = 'AWS/EC2'
     end
 
-    def get_latest_value metric, config
-      begin
-        metric.statistics(statistics_options(config).merge unit: 'Count').datapoints.sort_by { |datapoint| datapoint[:timestamp] }.last[config[:statistics]]
-      rescue
-        0
-      end
+    def get_latest_value 
+      @metric = generate_metric @aws_namespace
+      super
+    end
+      
+  end
+  
+  class ELBWatch < CloudWatch
+
+    def initialize opts, metric_opts, unit
+      super
+      @aws_namespace = 'AWS/ELB'
+    end
+
+    def get_latest_value
+      @metric = generate_metric @aws_namespace
+      super
     end
 
   end

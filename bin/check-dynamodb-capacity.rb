@@ -12,7 +12,7 @@
 #   Linux
 #
 # DEPENDENCIES:
-#   gem: aws-sdk
+#   gem: aws-sdk-v1
 #   gem: time
 #   gem: sensu-plugin
 #
@@ -24,6 +24,8 @@
 #   check-dynamodb-capacity --table_names session --capacity-for read --critical-over 90 --statistics maximum --period 3600
 #
 # NOTES:
+#  If a new table is created and it is never used or queried the AWS api will return nil for the requested
+#  metric. A warning is issued in this case.
 #
 # LICENSE:
 #   Copyright 2014 github.com/y13i
@@ -32,22 +34,11 @@
 #
 
 require 'sensu-plugin/check/cli'
-require 'aws-sdk'
+require 'aws-sdk-v1'
 require 'time'
 require '../lib/helpers'
 
 class CheckDynamoDB < Sensu::Plugin::Check::CLI
-
-  option :access_key_id,
-         short:       '-k N',
-         long:        '--access-key-id ID',
-         description: 'AWS access key ID'
-
-  option :secret_access_key,
-         short:       '-s N',
-         long:        '--secret-access-key KEY',
-         description: 'AWS secret access key'
-
   option :region,
          short:       '-r R',
          long:        '--region REGION',
@@ -101,12 +92,26 @@ class CheckDynamoDB < Sensu::Plugin::Check::CLI
     @message += message
   end
 
+  def metric_hash metric_name, table_name
+    {
+      name: metric_name,
+      aws_obj_name: table_name,
+      dimension_name: 'TableName' 
+    }
+  end
+
   def check_capacity(table)
     config[:capacity_for].each do |r_or_w|
-      metric_name   = "Consumed#{r_or_w.to_s.capitalize}CapacityUnits"
-      metric        = @cw.generate_metric metric_name, table.name, 'AWS/DynamoDB', 'TableName'
-      metric_value  = @cw.get_latest_value metric, config
-      percentage    = metric_value / table.send("#{r_or_w}_capacity_units").to_f * 100
+      metric_conf = metric_hash("Consumed#{r_or_w.to_s.capitalize}CapacityUnits", \
+                                table.name)
+      dw = Helpers::DynamoWatch.new(config, metric_conf, 'Count')
+      metric_value  = dw.get_latest_value
+      if metric_value >= 0
+        percentage    = metric_value / table.send("#{r_or_w}_capacity_units").to_f * 100
+      else
+        @message += "; Table #{table.name} is a new table has never been queried before!"
+        warning @message
+      end
 
       @severities.keys.each do |severity|
         threshold = config[:"#{severity}_over"]
@@ -119,7 +124,6 @@ class CheckDynamoDB < Sensu::Plugin::Check::CLI
   end
 
   def run
-    @cw = Helpers::CloudWatch.new config[:region]
     dynamo_db = Helpers::DynamoDB.new config[:region], config[:table_names]
     @message    = "#{dynamo_db.tables.size} tables total"
     @severities = {

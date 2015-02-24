@@ -30,7 +30,7 @@ Gem::Specification.new do |s|
   s.required_ruby_version  = '>= 1.9.3'
 
   s.add_runtime_dependency 'sensu-plugin',      '1.1.0'
-  s.add_runtime_dependency 'aws-sdk',           '2.0.22'
+  s.add_runtime_dependency 'aws-sdk',           '1.62.0'
   s.add_runtime_dependency 'timeout',           '0.0.1'
   s.add_runtime_dependency 'fog',               '1.27.0'
   s.add_runtime_dependency 'right_aws',         '3.1.0'

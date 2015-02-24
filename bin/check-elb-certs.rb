@@ -13,7 +13,7 @@
 #   Linux
 #
 # DEPENDENCIES:
-#   gem: aws-sdk
+#   gem: aws-sdk-v1
 #   gem: sensu-plugin
 #   gem: openssl
 #   gem: net/http
@@ -31,30 +31,17 @@
 #   for details.
 #
 
-require 'rubygems' if RUBY_VERSION < '1.9.0'
 require 'sensu-plugin/check/cli'
-require 'aws-sdk'
+require 'aws-sdk-v1'
 require 'net/http'
 require 'openssl'
+require '../lib/helpers'
 
 class CheckELBCerts < Sensu::Plugin::Check::CLI
-  option :aws_access_key,
-         short: '-a AWS_ACCESS_KEY',
-         long: '--aws-access-key AWS_ACCESS_KEY',
-         description: "AWS Access Key. Either set ENV['AWS_ACCESS_KEY_ID'] or provide it as an option",
-         default: ENV['AWS_ACCESS_KEY_ID']
-
-  option :aws_secret_access_key,
-         short: '-s AWS_SECRET_ACCESS_KEY',
-         long: '--aws-secret-access-key AWS_SECRET_ACCESS_KEY',
-         description: "AWS Secret Access Key. Either set ENV['AWS_SECRET_ACCESS_KEY'] or provide it as an option",
-         default: ENV['AWS_SECRET_ACCESS_KEY']
-
   option :aws_region,
          short: '-r AWS_REGION',
          long: '--aws-region REGION',
-         description: 'AWS Region (such as eu-west-1).',
-         default: 'us-east-1'
+         description: 'AWS Region (such as eu-west-1).'
 
   option :warn_under,
          short: '-w WARN_NUM',
@@ -82,14 +69,6 @@ class CheckELBCerts < Sensu::Plugin::Check::CLI
     message += (limit == 1 ? '' : 's') # rubocop:disable UselessAssignment
   end
 
-  def aws_config
-    hash = {}
-    hash.update access_key_id: config[:aws_access_key], secret_access_key: config[:aws_secret_access_key]\
-      if config[:aws_access_key] && config[:aws_secret_access_key]
-    hash.update region: config[:aws_region]
-    hash
-  end
-
   def run
     ok_message = []
     warning_message = []
@@ -97,10 +76,10 @@ class CheckELBCerts < Sensu::Plugin::Check::CLI
 
     AWS.start_memoizing
 
-    elb = AWS::ELB.new aws_config
+    elbs = Helpers::ELB.new(config[:aws_region]).elbs
 
     begin
-      elb.load_balancers.each do |lb|
+      elbs.each do |lb|
         lb.listeners.each do |listener| # rubocop:disable Style/Next
           if listener.protocol.to_s == 'https'
             url = URI.parse("https://#{lb.dns_name}:#{listener.port}")

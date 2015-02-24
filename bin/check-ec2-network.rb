@@ -12,7 +12,7 @@
 #   Linux
 #
 # DEPENDENCIES:
-#   gem: aws-sdk
+#   gem: aws-sdk-v1
 #   gem: sensu-plugin
 #
 # USAGE:
@@ -28,21 +28,11 @@
 #   for details.
 #
 
-require 'rubygems' if RUBY_VERSION < '1.9.0'
 require 'sensu-plugin/check/cli'
-require 'aws-sdk'
+require 'aws-sdk-v1'
+require '../lib/helpers'
 
 class CheckEc2Network < Sensu::Plugin::Check::CLI
-  option :access_key_id,
-         short:       '-k N',
-         long:        '--access-key-id ID',
-         description: 'AWS access key ID'
-
-  option :secret_access_key,
-         short:       '-s N',
-         long:        '--secret-access-key KEY',
-         description: 'AWS secret access key'
-
   option :region,
          short:       '-r R',
          long:        '--region REGION',
@@ -51,7 +41,8 @@ class CheckEc2Network < Sensu::Plugin::Check::CLI
   option :instance_id,
          short:       '-i instance-id',
          long:        '--instance-id instance-ids',
-         description: 'EC2 Instance ID to check.'
+         description: 'EC2 Instance ID to check.',
+         required:    true
 
   option :end_time,
          short:       '-t T',
@@ -63,13 +54,27 @@ class CheckEc2Network < Sensu::Plugin::Check::CLI
          short:       '-p N',
          long:        '--period SECONDS',
          default:     60,
+         proc:        proc(&:to_i),
          description: 'CloudWatch metric statistics period'
 
+  option :statistics,
+         short:       '-S N',
+         long:        '--statistics NAME',
+         default:     :average,
+         proc:        proc { |a| a.downcase.intern },
+         description: 'CloudWatch statistics method'
+
   option :direction,
-         short:       '-d NetworkIn or NetworkOut',
-         long:        '--direction NetworkIn or NetworkOut',
+         short:       '-d',
+         long:        '--direction STRING',
          default:     'NetworkIn',
-         description: 'Select NetworkIn or NetworkOut'
+         description: 'Direction of network traffic to measure. Valid options are NetworkIn or Network Out.'
+
+  option :metric_dimension,
+         short:       '-m M',
+         long:        '--dimension NAME',
+         default:     'InstanceId',
+         description: 'Specify dimension of CloudWatch Metric. Currently only InstanceId is supported.'
 
   %w(warning critical).each do |severity|
     option :"#{severity}_over",
@@ -77,55 +82,24 @@ class CheckEc2Network < Sensu::Plugin::Check::CLI
            description: "Trigger a #{severity} if network traffice is over specified Bytes"
   end
 
-  def aws_config
-    hash = {}
-    hash.update access_key_id: config[:access_key_id], secret_access_key: config[:secret_access_key] if config[:access_key_id] && config[:secret_access_key]
-    hash.update region: config[:region] if config[:region]
-    hash
-  end
-
-  def ec2
-    @ec2 ||= AWS::EC2.new aws_config
-  end
-
-  def cloud_watch
-    @cloud_watch ||= AWS::CloudWatch.new aws_config
-  end
-
-  def network_metric(instance)
-    cloud_watch.metrics.with_namespace('AWS/EC2').with_metric_name("#{config[:direction]}").with_dimensions(name: 'InstanceId', value: instance).first
-  end
-
-  def statistics_options
+  def metric_config
     {
-      start_time: config[:end_time] - 300,
-      end_time:   config[:end_time],
-      statistics: ['Average'],
-      period:     config[:period]
+      name:           config[:direction],
+      aws_obj_name:   config[:instance_id],
+      dimension_name: config[:metric_dimension]
     }
   end
 
-  def latest_value(metric)
-    value = metric.statistics(statistics_options.merge unit: 'Bytes')
-    # #YELLOW
-    unless value.datapoints[0].nil? # rubocop:disable IfUnlessModifier, GuardClause
-      value.datapoints[0][:average].to_f
-    end
-  end
-
-  def check_metric(instance)
-    metric = network_metric instance
-    latest_value metric
-  end
-
   def run
-    metric_value = check_metric config[:instance_id]
-    if !metric_value.nil? && metric_value > config[:critical_over].to_f
-      critical "#{config[:direction]} at #{metric_value} Bytes"
-    elsif !metric_value.nil? && metric_value > config[:warning_over].to_f
-      warning "#{config[:direction]} at #{metric_value} Bytes"
+    @ew = Helpers::EC2Watch.new config, metric_config, 'Bytes'
+    network_value = @ew.get_latest_value
+
+    if !network_value.nil? && network_value > config[:critical_over].to_f
+      critical "#{config[:direction]} at #{network_value} Bytes"
+    elsif !network_value.nil? && network_value > config[:warning_over].to_f
+      warning "#{config[:direction]} at #{network_value} Bytes"
     else
-      ok "#{config[:direction]} at #{metric_value} Bytes"
+      ok "#{config[:direction]} at #{network_value} Bytes"
     end
   end
 end

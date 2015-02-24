@@ -14,7 +14,7 @@
 #   Linux
 #
 # DEPENDENCIES:
-#   gem: aws-sdk
+#   gem: aws-sdk-v1
 #   gem: uri
 #   gem: net/http
 #   gem: sensu-plugin
@@ -24,25 +24,13 @@
 # Released under the same terms as Sensu (the MIT license); see LICENSE
 # for details.
 
-require 'rubygems' if RUBY_VERSION < '1.9.0'
 require 'sensu-plugin/check/cli'
 require 'net/http'
 require 'uri'
-require 'aws-sdk'
+require 'aws-sdk-v1'
+require '../lib/helpers'
 
 class ELBHealth < Sensu::Plugin::Check::CLI
-  option :aws_access_key,
-         short: '-a AWS_ACCESS_KEY',
-         long: '--aws-access-key AWS_ACCESS_KEY',
-         description: "AWS Access Key. Either set ENV['AWS_ACCESS_KEY_ID'] or provide it as an option",
-         default: ENV['AWS_ACCESS_KEY_ID']
-
-  option :aws_secret_access_key,
-         short: '-s AWS_SECRET_ACCESS_KEY',
-         long: '--aws-secret-access-key AWS_SECRET_ACCESS_KEY',
-         description: "AWS Secret Access Key. Either set ENV['AWS_SECRET_ACCESS_KEY'] or provide it as an option",
-         default: ENV['AWS_SECRET_ACCESS_KEY']
-
   option :aws_region,
          short: '-r AWS_REGION',
          long: '--aws-region REGION',
@@ -66,24 +54,6 @@ class ELBHealth < Sensu::Plugin::Check::CLI
          boolean: true,
          default: false
 
-  def aws_config
-    hash = {}
-    hash.update access_key_id: config[:access_key_id], secret_access_key: config[:secret_access_key] if config[:access_key_id] && config[:secret_access_key]
-    hash.update region: config[:aws_region]
-    hash
-  end
-
-  def elb
-    @elb ||= AWS::ELB.new aws_config
-  end
-
-  def elbs
-    return @elbs if @elbs
-    @elbs = elb.load_balancers.to_a
-    @elbs.select! { |elb| config[:elb_name].include? elb.name } if config[:elb_name]
-    @elbs
-  end
-
   def check_health(elb)
     unhealthy_instances = {}
     if config[:instances]
@@ -104,6 +74,7 @@ class ELBHealth < Sensu::Plugin::Check::CLI
   end
 
   def run
+    elbs = Helpers::ELB.new(config[:aws_region], config[:elb_name]).elbs
     @message = (elbs.size > 1 ? config[:aws_region] + ': ' : '')
     critical = false
     elbs.each do |elb|
