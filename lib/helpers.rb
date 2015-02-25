@@ -40,6 +40,7 @@ module Helpers
 
   end
 
+
   class ELB < Config
     include Helpers
 
@@ -95,6 +96,20 @@ module Helpers
 
     def rds
       @rds ||= AWS::RDS.new(aws_config @region)
+    end
+
+  end
+
+  class VPN < EC2
+    include Helpers
+
+    def initialize region, vpn_connection_id
+      super region
+      @vpn_conn_id = vpn_connection_id
+    end
+
+    def connection 
+      @conn ||= ec2.vpn_connections[@vpn_conn_id]
     end
 
   end
