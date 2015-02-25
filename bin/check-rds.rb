@@ -46,20 +46,9 @@
 require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
 require 'time'
+require '../lib/helpers'
 
 class CheckRDS < Sensu::Plugin::Check::CLI
-  option :access_key_id,
-         short:       '-k N',
-         long:        '--access-key-id ID',
-         description: 'AWS access key ID',
-         default: ENV['AWS_ACCESS_KEY_ID']
-
-  option :secret_access_key,
-         short:       '-s N',
-         long:        '--secret-access-key KEY',
-         description: 'AWS secret access key',
-         default: ENV['AWS_SECRET_ACCESS_KEY']
-
   option :region,
          short:       '-r R',
          long:        '--region REGION',
@@ -70,7 +59,8 @@ class CheckRDS < Sensu::Plugin::Check::CLI
   option :db_instance_id,
          short:       '-i N',
          long:        '--db-instance-id NAME',
-         description: 'DB instance identifier'
+         description: 'DB instance identifier',
+         required:    true
 
   option :end_time,
          short:       '-t T',
@@ -102,51 +92,9 @@ class CheckRDS < Sensu::Plugin::Check::CLI
       option :"#{item}_#{severity}_over",
              long:        "--#{item}-#{severity}-over N",
              proc:        proc(&:to_f),
-             description: "Trigger a #{severity} if #{item} usage is over a percentage"
+             description: "Trigger a #{severity} if #{item} usage is over a percentage",
+             default: 80
     end
-  end
-
-  def aws_config
-    hash = {}
-    hash.update access_key_id: config[:access_key_id], secret_access_key: config[:secret_access_key] if config[:access_key_id] && config[:secret_access_key]
-    hash.update region: config[:region] if config[:region]
-    hash
-  end
-
-  def rds
-    @rds ||= AWS::RDS.new aws_config
-  end
-
-  def cloud_watch
-    @cloud_watch ||= AWS::CloudWatch.new aws_config
-  end
-
-  def find_db_instance(id)
-    db = rds.instances[id]
-    fail unless db.exists?
-    db
-  rescue
-    unknown 'DB instance not found.'
-  end
-
-  def cloud_watch_metric(metric_name)
-    cloud_watch.metrics.with_namespace('AWS/RDS').with_metric_name(metric_name).with_dimensions(name: 'DBInstanceIdentifier', value: @db_instance.id).first
-  end
-
-  def statistics_options
-    {
-      start_time: config[:end_time] - config[:period],
-      end_time:   config[:end_time],
-      statistics: [config[:statistics].to_s.capitalize],
-      period:     config[:period]
-    }
-  end
-
-  def latest_value(metric, unit)
-    values = metric.statistics(statistics_options.merge unit: unit).datapoints.sort_by { |datapoint| datapoint[:timestamp] }
-
-    # handle time periods that are too small to return usable values
-    values.empty? ? unknown('Requested time period did not return values from Cloudwatch. Try increasing your time period.') : values.last[config[:statistics]]
   end
 
   def flag_alert(severity, message)
@@ -174,12 +122,20 @@ class CheckRDS < Sensu::Plugin::Check::CLI
       'db.m1.medium'   => 3.75,
       'db.m1.large'    => 7.5,
       'db.m1.xlarge'   => 15.0,
-      'db.t2.micro' => 1,
-      'db.t2.small' => 2,
-      'db.t2.medium' => 4
+      'db.t2.micro'    => 1,
+      'db.t2.small'    => 2,
+      'db.t2.medium'   => 4
     }
 
     memory_total_gigabytes.fetch(instance_class) * 1024**3
+  end
+
+  def metric_hash metric_name
+    {
+      name: metric_name,
+      aws_obj_name: @db_instance.id,
+      dimension_name: 'DBInstanceIdentifier'
+    }
   end
 
   def check_az(severity, expected_az)
@@ -187,39 +143,39 @@ class CheckRDS < Sensu::Plugin::Check::CLI
     flag_alert severity, "; AZ is #{@db_instance.availability_zone_name} (expected #{expected_az})"
   end
 
-  def check_cpu(severity, expected_lower_than)
-    @cpu_metric       ||= cloud_watch_metric 'CPUUtilization'
-    @cpu_metric_value ||= latest_value @cpu_metric, 'Percent'
-    return if @cpu_metric_value < expected_lower_than
-    flag_alert severity, "; CPUUtilization is #{sprintf '%.2f', @cpu_metric_value}% (expected lower than #{expected_lower_than}%)"
+  def check_cpu(severity, limit)
+    cpu_metric = Helpers::RDSWatch.new(config, metric_hash('CPUUtilization'), 'Percent')
+    cpu_metric_value = cpu_metric.get_latest_value
+    return if cpu_metric_value < limit
+    flag_alert severity, "; CPUUtilization is #{sprintf '%.2f', @cpu_metric_value}% (expected lower than #{limit}%)"
   end
 
-  def check_memory(severity, expected_lower_than)
-    @memory_metric           ||= cloud_watch_metric 'FreeableMemory'
-    @memory_metric_value     ||= latest_value @memory_metric, 'Bytes'
-    @memory_total_bytes      ||= memory_total_bytes @db_instance.db_instance_class
-    @memory_usage_bytes      ||= @memory_total_bytes - @memory_metric_value
-    @memory_usage_percentage ||= @memory_usage_bytes / @memory_total_bytes * 100
-    return if @memory_usage_percentage < expected_lower_than
-    flag_alert severity, "; Memory usage is #{sprintf '%.2f', @memory_usage_percentage}% (expected lower than #{expected_lower_than}%)"
+  def check_memory(severity, limit)
+    memory_metric = Helpers::RDSWatch.new(config, metric_hash('FreeableMemory'), 'Bytes')
+    memory_metric_value = memory_metric.get_latest_value 
+    provisioned_memory = memory_total_bytes @db_instance.db_instance_class
+    used_memory = provisioned_memory - memory_metric_value
+    memory_usage_percentage = used_memory / provisioned_memory * 100
+    return if memory_usage_percentage < limit
+    flag_alert severity, "; Memory usage is #{sprintf '%.2f', @memory_usage_percentage}% (expected lower than #{limit}%)"
   end
 
-  def check_disk(severity, expected_lower_than)
-    @disk_metric           ||= cloud_watch_metric 'FreeStorageSpace'
-    @disk_metric_value     ||= latest_value @disk_metric, 'Bytes'
-    @disk_total_bytes      ||= @db_instance.allocated_storage * 1024**3
-    @disk_usage_bytes      ||= @disk_total_bytes - @disk_metric_value
-    @disk_usage_percentage ||= @disk_usage_bytes / @disk_total_bytes * 100
-    return if @disk_usage_percentage < expected_lower_than
-    flag_alert severity, "; Disk usage is #{sprintf '%.2f', @disk_usage_percentage}% (expected lower than #{expected_lower_than}%)"
+  def check_disk(severity, limit)
+    disk_metric = Helpers::RDSWatch.new(config, metric_hash('FreeStorageSpace'), 'Bytes')
+    disk_metric_value = disk_metric.get_latest_value
+    provisioned_disk = @db_instance.allocated_storage * 1024**3
+    used_disk = provisioned_disk - disk_metric_value
+    disk_usage_percentage = used_disk / provisioned_disk * 100
+    return if disk_usage_percentage < limit
+    flag_alert severity, "; Disk usage is #{sprintf '%.2f', @disk_usage_percentage}% (expected lower than #{limit}%)"
   end
 
   def run
-    if config[:db_instance_id].nil? || config[:db_instance_id].empty?
-      unknown 'No DB instance provided.  See help for usage details'
+    AWS.start_memoizing
+    @db_instance  = Helpers::RDS.new(config[:region]).rds.instances[config[:db_instance_id]]
+    if not @db_instance.exists?
+      raise AWS::RDS::Errors::DBInstanceNotFound
     end
-
-    @db_instance  = find_db_instance config[:db_instance_id]
     @message      = "#{config[:db_instance_id]}: "
     @severities   = {
       critical: false,
@@ -238,6 +194,7 @@ class CheckRDS < Sensu::Plugin::Check::CLI
       @message += "(#{config[:statistics].to_s.capitalize} within #{config[:period]}s "
       @message += "between #{config[:end_time] - config[:period]} to #{config[:end_time]})"
     end
+    AWS.stop_memoizing
 
     if @severities[:critical]
       critical @message

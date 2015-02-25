@@ -29,30 +29,14 @@
 
 require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
+require '../lib/helpers'
 
 class CheckInstanceEvents < Sensu::Plugin::Check::CLI
-  option :aws_access_key,
-         short: '-a AWS_ACCESS_KEY',
-         long: '--aws-access-key AWS_ACCESS_KEY',
-         description: "AWS Access Key. Either set ENV['AWS_ACCESS_KEY_ID'] or provide it as an option",
-         default: ENV['AWS_ACCESS_KEY_ID']
-
-  option :use_iam_role,
-         short: '-u',
-         long: '--use-iam',
-         description: 'Use IAM role authenticiation. Instance must have IAM role assigned for this to work'
-
   option :include_name,
          short: '-n',
          long: '--include-name',
          description: "Includes any offending instance's 'Name' tag in the check output",
          default: false
-
-  option :aws_secret_access_key,
-         short: '-s AWS_SECRET_ACCESS_KEY',
-         long: '--aws-secret-access-key AWS_SECRET_ACCESS_KEY',
-         description: "AWS Secret Access Key. Either set ENV['AWS_SECRET_ACCESS_KEY'] or provide it as an option",
-         default: ENV['AWS_SECRET_ACCESS_KEY']
 
   option :aws_region,
          short: '-r AWS_REGION',
@@ -60,26 +44,9 @@ class CheckInstanceEvents < Sensu::Plugin::Check::CLI
          description: 'AWS Region (such as eu-west-1).',
          default: 'us-east-1'
 
-  def aws_config
-    hash = {}
-    hash.update access_key_id: config[:aws_access_key], secret_access_key: config[:aws_secret_access_key]\
-      if config[:aws_access_key] && config[:aws_secret_access_key]
-    hash.update region: config[:aws_region]
-    hash
-  end
-
   def run
     event_instances = []
-    aws_config =   {}
-
-    if config[:use_iam_role].nil?
-      aws_config.merge!(
-      access_key_id: config[:aws_access_key],
-      secret_access_key: config[:aws_secret_access_key]
-      )
-    end
-
-    ec2 = AWS::EC2::Client.new(aws_config.merge!(region: config[:aws_region]))
+    ec2 = Helpers::EC2.new(config[:aws_region]).client
     begin
       ec2.describe_instance_status[:instance_status_set].each do |i| # rubocop:disable Next
 

@@ -92,18 +92,13 @@ class CheckDynamoDB < Sensu::Plugin::Check::CLI
     @message += message
   end
 
-  def metric_hash metric_name, table_name
-    {
-      name: metric_name,
-      aws_obj_name: table_name,
-      dimension_name: 'TableName' 
-    }
-  end
-
   def check_capacity(table)
     config[:capacity_for].each do |r_or_w|
-      metric_conf = metric_hash("Consumed#{r_or_w.to_s.capitalize}CapacityUnits", \
-                                table.name)
+      metric_conf = {
+                      name: "Consumed#{r_or_w.to_s.capitalize}CapacityUnits", 
+                      aws_obj_name: table.name,
+                      dimension_name: 'TableName' 
+                    }
       dw = Helpers::DynamoWatch.new(config, metric_conf, 'Count')
       metric_value  = dw.get_latest_value
       if metric_value >= 0

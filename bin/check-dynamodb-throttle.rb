@@ -85,18 +85,13 @@ class CheckDynamoDB < Sensu::Plugin::Check::CLI
     @message += message
   end
 
-  def metric_hash metric_name, table_name
-    {
-      name: metric_name,
-      aws_obj_name: table_name,
-      dimension_name: 'TableName' 
-    }
-  end
-
   def check_throttle(table)
     config[:throttle_for].each do |r_or_w|
-      metric_conf   = metric_hash("#{r_or_w.to_s.capitalize}ThrottleEvents", \
-                                  table.name)
+      metric_conf = {
+                      name: "#{r_or_w.to_s.capitalize}ThrottleEvents", 
+                      aws_obj_name: table.name,
+                      dimension_name: 'TableName' 
+                    }
       dw = Helpers::DynamoWatch.new(config, metric_conf, 'Count') 
       metric_value = dw.get_latest_value
 

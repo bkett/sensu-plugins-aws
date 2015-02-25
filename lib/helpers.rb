@@ -23,6 +23,23 @@ module Helpers
 
   end
 
+  class EC2 < Config
+    include Helpers
+
+    def initialize region
+      super region
+    end
+
+    def ec2
+      @ec2 ||= AWS::EC2.new(aws_config @region)
+    end
+
+    def client
+      @client ||= AWS::EC2::Client.new(aws_config @region)
+    end
+
+  end
+
   class ELB < Config
     include Helpers
 
@@ -65,6 +82,23 @@ module Helpers
 
   end
 
+  class RDS < Config
+    include Helpers
+
+    def initialize region
+      super region
+    end
+
+    def client
+      @client ||= AWS::RDS::Client.new(aws_config @region)
+    end
+
+    def rds
+      @rds ||= AWS::RDS.new(aws_config @region)
+    end
+
+  end
+
   class CloudWatch < Config
     include Helpers
     
@@ -78,7 +112,7 @@ module Helpers
     private
     def statistics_options
       {
-        start_time: @stat_opts[:end_time] - @stat_opts[:period].to_i * 10,
+        start_time: @stat_opts[:end_time] - @stat_opts[:period].to_i * 5,
         end_time:   @stat_opts[:end_time],
         statistics: [@stat_opts[:statistics].to_s.capitalize],
         period:     @stat_opts[:period],
@@ -86,9 +120,9 @@ module Helpers
       }
     end
 
-    def generate_metric aws_namespace 
-      cloud_watch.metrics.with_namespace(aws_namespace).with_metric_name(@metric_opts[:name]).with_dimensions( \
-                            name: @metric_opts[:dimension_name], value: @metric_opts[:aws_obj_name]).first
+    def generate_metric aws_namespace, metric_opts=@metric_opts 
+      cloud_watch.metrics.with_namespace(aws_namespace).with_metric_name(metric_opts[:name]).with_dimensions( \
+                            name: metric_opts[:dimension_name], value: metric_opts[:aws_obj_name]).first
     end
 
     def get_latest_value 
@@ -138,6 +172,20 @@ module Helpers
     def initialize opts, metric_opts, unit
       super
       @aws_namespace = 'AWS/ELB'
+    end
+
+    def get_latest_value
+      @metric = generate_metric @aws_namespace
+      super
+    end
+
+  end
+
+  class RDSWatch < CloudWatch
+
+    def initialize opts, metric_opts, unit
+      super
+      @aws_namespace = 'AWS/RDS'
     end
 
     def get_latest_value

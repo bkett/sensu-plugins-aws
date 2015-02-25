@@ -20,7 +20,7 @@
 #   gem: sensu-plugin
 #
 # USAGE:
-#  ./check-rds-events.rb -r ${you_region} -s ${your_aws_secret_access_key} -a ${your_aws_access_key}
+#  ./check-rds-events.rb -r ${you_region}
 #
 # NOTES:
 #
@@ -32,20 +32,9 @@
 
 require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
+require '../lib/helpers'
 
 class CheckRDSEvents < Sensu::Plugin::Check::CLI
-  option :aws_access_key,
-         short: '-a AWS_ACCESS_KEY',
-         long: '--aws-access-key AWS_ACCESS_KEY',
-         description: "AWS Access Key. Either set ENV['AWS_ACCESS_KEY_ID'] or provide it as an option",
-         default: ENV['AWS_ACCESS_KEY_ID']
-
-  option :aws_secret_access_key,
-         short: '-s AWS_SECRET_ACCESS_KEY',
-         long: '--aws-secret-access-key AWS_SECRET_ACCESS_KEY',
-         description: "AWS Secret Access Key. Either set ENV['AWS_SECRET_ACCESS_KEY'] or provide it as an option",
-         default: ENV['AWS_SECRET_ACCESS_KEY']
-
   option :aws_region,
          short: '-r AWS_REGION',
          long: '--aws-region REGION',
@@ -53,13 +42,10 @@ class CheckRDSEvents < Sensu::Plugin::Check::CLI
          default: 'us-east-1'
 
   def run # rubocop:disable AbcSize
-    rds = AWS::RDS::Client.new(
-      access_key_id: config[:aws_access_key],
-      secret_access_key: config[:aws_secret_access_key],
-      region: config[:aws_region])
 
     begin
       # fetch all clusters identifiers
+      rds = Helpers::RDS.new(config[:region]).client
       clusters = rds.describe_db_instances[:db_instances].map { |db| db[:db_instance_identifier] }
       maint_clusters = []
 

@@ -70,28 +70,19 @@ class CheckEc2Network < Sensu::Plugin::Check::CLI
          default:     'NetworkIn',
          description: 'Direction of network traffic to measure. Valid options are NetworkIn or Network Out.'
 
-  option :metric_dimension,
-         short:       '-m M',
-         long:        '--dimension NAME',
-         default:     'InstanceId',
-         description: 'Specify dimension of CloudWatch Metric. Currently only InstanceId is supported.'
-
   %w(warning critical).each do |severity|
     option :"#{severity}_over",
            long:        "--#{severity}-over COUNT",
            description: "Trigger a #{severity} if network traffice is over specified Bytes"
   end
 
-  def metric_config
-    {
-      name:           config[:direction],
-      aws_obj_name:   config[:instance_id],
-      dimension_name: config[:metric_dimension]
-    }
-  end
-
   def run
-    @ew = Helpers::EC2Watch.new config, metric_config, 'Bytes'
+    metric_conf = {
+                    name:           config[:direction],
+                    aws_obj_name:   config[:instance_id],
+                    dimension_name: 'InstanceId'
+                  }
+    @ew = Helpers::EC2Watch.new config, metric_conf, 'Bytes'
     network_value = @ew.get_latest_value
 
     if !network_value.nil? && network_value > config[:critical_over].to_f

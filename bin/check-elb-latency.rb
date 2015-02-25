@@ -80,23 +80,21 @@ class CheckELBLatency < Sensu::Plugin::Check::CLI
     @message += message
   end
 
-  def metric_hash metric_name, elb_name
-    {
-      name: metric_name,
-      aws_obj_name: elb_name,
-      dimension_name: 'LoadBalancerName' 
-    }
-  end
   
   def check_latency(elb)
-    metric_conf = metric_hash('Latency', elb.name)
+    metric_conf = {
+                    name: 'Latency',
+                    aws_obj_name: elb.name,
+                    dimension_name: 'LoadBalancerName' 
+                  }
     ew = Helpers::ELBWatch.new(config, metric_conf, 'Seconds')
     metric_value = ew.get_latest_value
     if metric_value < 0
-      return @message += "; load balancer #{elb.name} has no alive nodes!"
       if @elbs.size == 1
         @severities[:warning] = true
+        return @message += "; The load balancer has no alive nodes!"
       end
+      return @message += "; load balancer #{elb.name} has no alive nodes!"
     end
     @severities.keys.each do |severity|
       threshold = config[:"#{severity}_over"]

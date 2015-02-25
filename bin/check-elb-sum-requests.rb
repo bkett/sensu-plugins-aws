@@ -79,16 +79,12 @@ class CheckELBSumRequests < Sensu::Plugin::Check::CLI
     @message += message
   end
 
-  def metric_hash metric_name, elb_name
-    {
-      name: metric_name,
-      aws_obj_name: elb_name,
-      dimension_name: 'LoadBalancerName' 
-    }
-  end
-
   def check_sum_requests(elb)
-    metric_conf =  metric_hash('RequestCount', elb.name)
+    metric_conf = {
+                    name: 'RequestCount',
+                    aws_obj_name: elb.name,
+                    dimension_name: 'LoadBalancerName' 
+                  }
     ew = Helpers::ELBWatch.new(config, metric_conf, 'Count')
     metric_value = ew.get_latest_value
     if metric_value < 0
