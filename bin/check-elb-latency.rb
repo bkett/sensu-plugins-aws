@@ -33,7 +33,7 @@
 
 require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
-require '../lib/helpers'
+require 'sensu-pulgins-aws/helpers'
 
 class CheckELBLatency < Sensu::Plugin::Check::CLI
   option :region,

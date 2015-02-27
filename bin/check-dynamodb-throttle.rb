@@ -31,7 +31,7 @@
 require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
 require 'time'
-require '../lib/helpers'
+require 'sensu-pulgins-aws/helpers'
 
 class CheckDynamoDB < Sensu::Plugin::Check::CLI
   option :region,

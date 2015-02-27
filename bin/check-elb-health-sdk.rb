@@ -28,7 +28,7 @@ require 'sensu-plugin/check/cli'
 require 'net/http'
 require 'uri'
 require 'aws-sdk-v1'
-require '../lib/helpers'
+require 'sensu-pulgins-aws/helpers'
 
 class ELBHealth < Sensu::Plugin::Check::CLI
   option :aws_region,

@@ -29,7 +29,7 @@
 
 require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
-require '../lib/helpers'
+require 'sensu-pulgins-aws/helpers'
 
 class CheckInstanceEvents < Sensu::Plugin::Check::CLI
   option :include_name,

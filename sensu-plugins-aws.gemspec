@@ -8,7 +8,7 @@ else
   require_relative 'lib/sensu-plugins-aws'
 end
 
-pvt_key = '~/.ssh/gem-private_key.pem'
+#pvt_key = '~/.ssh/gem-private_key.pem'
 
 Gem::Specification.new do |s|
   s.name                   = 'sensu-plugins-aws'
@@ -23,9 +23,9 @@ Gem::Specification.new do |s|
   s.files                  = Dir.glob('{bin,lib}/**/*') + %w(LICENSE README.md CHANGELOG.md)
   s.executables            = s.files.grep(%r{^bin/}) { |f| File.basename(f) }
   s.test_files             = s.files.grep(%r{^(test|spec|features)/})
-  s.require_paths          = ['lib']
+  s.require_paths          = ['lib', 'sensu-plugins-aws']
   s.cert_chain             = ['certs/sensu-plugins.pem']
-  s.signing_key            = File.expand_path(pvt_key) if $PROGRAM_NAME =~ /gem\z/
+#  s.signing_key            = File.expand_path(pvt_key) if $PROGRAM_NAME =~ /gem\z/
   s.platform               = Gem::Platform::RUBY
   s.required_ruby_version  = '>= 1.9.3'
 

@@ -100,6 +100,26 @@ module Helpers
 
   end
 
+  class Redshift < Config
+    include Helpers
+
+    def initialize region
+      super region
+    end
+
+    def client
+      @client ||= AWS::Redshift::Client.new(aws_config @region)
+    end
+
+    def get_relevant_clusters instances
+      return @clusters if @clusters
+      @clusters = client.describe_clusters[:clusters].map { |c| c[:cluster_identifier] }
+      sel! @clusters, instances
+      @clusters
+    end
+
+  end
+
   class VPN < EC2
     include Helpers
 

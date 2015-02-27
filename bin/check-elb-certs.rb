@@ -35,7 +35,7 @@ require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
 require 'net/http'
 require 'openssl'
-require '../lib/helpers'
+require 'sensu-pulgins-aws/helpers'
 
 class CheckELBCerts < Sensu::Plugin::Check::CLI
   option :aws_region,

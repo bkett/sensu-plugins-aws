@@ -1,4 +1,5 @@
 require 'bundler/gem_tasks'
+require 'rake/testtask'
 require 'rspec/core/rake_task'
 require 'rubocop/rake_task'
 require 'github/markup'
@@ -37,4 +38,11 @@ task :make_bin_executable do
   `chmod -R +x bin/*`
 end
 
+Rake::TestTask.new do |t|
+  t.libs << 'test'
+end
+desc 'Run tests'
+task :test
+
 task default: args
+
