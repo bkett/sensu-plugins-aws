@@ -30,7 +30,7 @@
 
 require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
-require 'sensu-pulgins-aws/helpers'
+require 'sensu-plugins-aws/helpers'
 
 class CheckEc2Network < Sensu::Plugin::Check::CLI
   option :region,

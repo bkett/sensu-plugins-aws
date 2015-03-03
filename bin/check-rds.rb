@@ -46,7 +46,7 @@
 require 'sensu-plugin/check/cli'
 require 'aws-sdk-v1'
 require 'time'
-require 'sensu-pulgins-aws/helpers'
+require 'sensu-plugins-aws/helpers'
 
 class CheckRDS < Sensu::Plugin::Check::CLI
   option :region,
