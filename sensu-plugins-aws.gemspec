@@ -39,6 +39,7 @@ Gem::Specification.new do |s|
   s.add_development_dependency 'minitest',      '~> 5.5.1'   
   s.add_development_dependency 'bundler',       '~> 1.7'
   s.add_development_dependency 'rake',          '~> 10.4.2'
+  s.add_development_dependency 'rspec'
   s.add_development_dependency 'github-markup'
   s.add_development_dependency 'redcarpet'
   s.add_development_dependency 'yard'
